@@ -14,7 +14,7 @@ data Outcome = Fail
              | Unresolved
 
 -- type DeltaState = V.Vector
--- type Cache = Trie Outcome
+type Cache = Trie Outcome
 
 -- Outer driver should have three modes:
 -- * Top-level C/C++ decls
@@ -36,7 +36,7 @@ data Outcome = Fail
 --             return len
 
 
-input = [1..20]
+-- input = [0..20]
 outcomes = [ Unresolved, Unresolved
            , Unresolved, Pass, Pass, Unresolved, Unresolved, Fail
            , Unresolved, Pass, Unresolved, Unresolved, Fail ]
@@ -52,41 +52,57 @@ chunkInputs inp numberOfChunks = reverse $ chunkInputs' inp []
              else lst : accum
         chunkSize = ceiling $ (fromIntegral $ length inp) / (fromIntegral numberOfChunks)
 
-bitOp op bs1 bs2 =
-  if (BS.length bs1) == (BS.length bs2)
-     then BS.unfoldrN (BS.length bs1) f 0
-     else error "Bytestrings not equal size"
-  where f idx = Just ((BS.index bs1 idx) `op` (BS.index bs2 idx), idx + 1)
+-- data SearchState = SearchState [BitVector] [BitVector]
 
--- BE CAREFUL: Need to wrap this in another type that records how many
--- bits in the last byte are NOT actually in use.  The completely
--- unused bits need to be masked out after bitXor and bitComplement
--- Declare a Bits instance?  Implemented correctly, that would leave
--- these functions alone.
+makeTestVectors activeBitMask nGroups = (map maskFunc bitVectors, map maskFunc complements)
+  where chunks = chunkInputs input nGroups
+        bitVectors = map (makeBitVector (bitSize activeBitMask) True) chunks
+        complements = map complement bitVectors
+        maskFunc = (activeBitMask .&.)
 
--- data BitString = BitString BS.ByteVector Int
+-- State is the result cache and the smallest failing input
+ddmin testFunc input = evalState (ddmin' initActiveBits 2) (T.empty, input)
+  where inputLen = length input
+        initActiveBits = makeBitVector inputLen False []
+        ddmin' activeBits nGroups = do
+          let (divs, complements) = makeTestVectors activeBits nGroups
+          res <- internalTest $ append divs complements
+          (cache, smallestInputSoFar) <- get
+          case res of
+            -- Unresolved
+            Nothing -> if nGroups == inputLen
+                         -- Done
+                         then return smallestInputSoFar
+                         -- Increase granularity
+                         else ddmin' activeBits (nGroups * 2)
+            Just failingInput -> ddmin' (makeBitVector inputLen True failingInput) nGroups
+        internalTest [] = return Nothing
+        internalTest (testSet:rest) = do
+          -- TODO: Convert testSet to a list of the inputs
+          case testFunc testSet of
+            Pass -> internalTest rest
+            Unresolved -> internalTest rest
+            Fail -> return $ Just testSet
 
--- bitAnd = bitOp (.&.)
--- bitOr  = bitOp (.|.)
--- bitXor = bitOp xor
--- bitComplement = BS.map complement
-
--- Create an initial bytestring with (length input) ones (padded by trailing zeroes)
-
--- ddmin deltas (outcome:outcomes) activeChunkMask
-
--- makeInitialBytestring inputs = BS.snoc wholeBytes lastByte
---   where (nBytes, extra) = (length inputs) `divMod` nBits
---         nBits = bitSize (0::Word8)
---         lastByte = foldr f (complement 0) [0..(nBits - extra - 1)]
---         f idx w = clearBit w idx
---         wholeBytes = BS.replicate nBytes (complement 0)
-
-bv1 = makeBitVector 10 [3, 5, 8] True
 
 main = do
-  -- let initActivePieces = makeInitialBytestring input
-  -- putStrLn $ show $ initActivePieces
-  putStrLn $ show $ chunkInputs input 5
-  putStrLn $ show bv1
+  minimizedInput <- ddmin f [0..20]
+  -- let initialActive = makeBitVector (length input) False []
+  -- let (divs, compls) = makeTestVectors (makeBitVector (length input) False []) 4
+  -- putStrLn $ show divs
+  -- putStrLn $ show compls
 
+  -- let mask2 = head $ tail compls
+  --     (divs2, compls2) = makeTestVectors mask2 4
+
+  -- putStrLn $ "Mask: " ++ show mask2
+  -- putStrLn $ show divs2
+  -- putStrLn $ show compls2
+
+  -- let initActivePieces = makeBitVector (length input) False []
+  --     initialChunks = chunkInputs input 2
+  --     initBitVectors = map (makeBitVector (length input) False) initialChunks
+  -- putStrLn $ show initActivePieces
+  -- putStrLn $ show $ chunkInputs input 5
+  -- putStrLn $ show initBitVectors
+  -- putStrLn $ show $ map complement initBitVectors

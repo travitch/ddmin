@@ -29,7 +29,7 @@ instance Num BitVector where
   (BitVector v1 un1) - (BitVector v2 un2) = error "- on BitVectors not supported"
   (BitVector v1 un1) * (BitVector v2 un2) = error "* on BitVectors not supported"
   abs bv = bv
-  signum bv = setBit (makeBitVector (bitSize bv) [] True) 0
+  signum bv = makeBitVector (bitSize bv) True [0]
   fromInteger i = error "fromInteger on BitVectors not supported"
 
 instance Bits BitVector where
@@ -46,7 +46,7 @@ instance Bits BitVector where
 byteToString byte = concat $ map f [0..7]
   where f i = if testBit byte i then "1" else "0"
 
-internalShow bv@(BitVector v unused) = (concat $ V.toList $ V.imap f v) ++ " bytes " ++ show (V.length v) ++ " unused " ++ show unused
+internalShow bv@(BitVector v unused) = concat $ V.toList $ V.imap f v
   where f idx byte = (byteToString $ indexBitVector bv idx)
 
 bitOp op (BitVector v1 un1) (BitVector v2 un2) =
@@ -55,13 +55,13 @@ bitOp op (BitVector v1 un1) (BitVector v2 un2) =
      else error "Bytestrings not equal size"
   where newV = V.zipWith op v1 v2
 
-internalShift bv@(BitVector v unused) n = makeBitVector (bitSize bv) filteredBits True
+internalShift bv@(BitVector v unused) n = makeBitVector (bitSize bv) True filteredBits
   where initialBitsSet = bitsSet bv
         newBitsSet = map (+n) initialBitsSet
         filteredBits = filter indexOutOfBounds newBitsSet
         indexOutOfBounds idx = idx < 0 || idx >= bitSize bv
 
-internalRotate bv@(BitVector v unused) n = makeBitVector nBits newBitsSet True
+internalRotate bv@(BitVector v unused) n = makeBitVector nBits True newBitsSet
   where initialBitsSet = bitsSet bv
         newBitsSet = map (\x -> mod x nBits) $ map (+n) initialBitsSet
         nBits = bitSize bv
@@ -84,8 +84,8 @@ bitsSet bv@(BitVector v unused) = concat $ V.toList $ V.imap f v
 
 -- | Make a bit vector of size nBits with the bits at the provided indices set to initVal
 -- | The other bits are !initVal
-makeBitVector :: Int -> [Int] -> Bool -> BitVector
-makeBitVector nBits bits initVal =
+makeBitVector :: Int -> Bool -> [Int] -> BitVector
+makeBitVector nBits initVal bits =
   if nBits >= 0
     then BitVector bv (8-leftover) -- `debug` (" rev " ++ show bv)
     else error "BitVectors cannot have negative length"
@@ -133,12 +133,12 @@ toByteString bv@(BitVector v unusedBits) =
 -- | Clear all of the provided bits at once
 clearBits :: BitVector -> [Int] -> BitVector
 clearBits bv idxs = bv .&. mask
-  where mask = makeBitVector (bitSize bv) idxs False
+  where mask = makeBitVector (bitSize bv) False idxs
 
 -- | Set all of the provided bits at once
 setBits :: BitVector -> [Int] -> BitVector
 setBits bv idxs = bv .|. mask
-  where mask = makeBitVector (bitSize bv) idxs True
+  where mask = makeBitVector (bitSize bv) True idxs
 
 -- -- | Complement all of the provided bits at once
 -- complementBits :: BitVector -> [Int] -> BitVector

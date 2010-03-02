@@ -79,10 +79,17 @@ ddmin testFunc input = evalState (ddmin' initActiveBits 2) (T.empty, input)
         internalTest [] = return Nothing
         internalTest (testSet:rest) = do
           -- TODO: Convert testSet to a list of the inputs
+          (cache, smallestInputSoFar) <- get
           case testFunc testSet of
-            Pass -> internalTest rest
-            Unresolved -> internalTest rest
-            Fail -> return $ Just testSet
+            Pass -> do
+              put (T.insert (toByteString testSet) Pass cache, smallestInputSoFar)
+              internalTest rest
+            Unresolved -> do
+              put (T.insert (toByteString testSet) Unresolved cache, smallestInputSoFar)
+              internalTest rest
+            Fail -> do
+              put (T.insert (toByteString testSet) Fail cache, smallestInputSoFar)
+              return $ Just testSet
 
 
 main = do

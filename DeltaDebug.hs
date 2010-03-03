@@ -2,10 +2,12 @@
 --                   , Outcome(..)
 --                   ) where
 
--- import Data.BitSet
+
+import Control.Monad.State
+import Data.IORef
 import qualified Data.ByteString as BS
 import Data.Bits
-import Data.Trie
+import Data.Trie as T
 import Data.BitVector
 import Data.Word
 
@@ -39,7 +41,7 @@ type Cache = Trie Outcome
 -- input = [0..20]
 outcomes = [ Unresolved, Unresolved
            , Unresolved, Pass, Pass, Unresolved, Unresolved, Fail
-           , Unresolved, Pass, Unresolved, Unresolved, Fail ]
+           , Unresolved, Pass, Unresolved, Unresolved, Fail, Fail, Fail, Fail, Fail, Fail, Fail, Fail ]
 
 type Chunk a = [a]
 
@@ -52,48 +54,51 @@ chunkInputs inp numberOfChunks = reverse $ chunkInputs' inp []
              else lst : accum
         chunkSize = ceiling $ (fromIntegral $ length inp) / (fromIntegral numberOfChunks)
 
--- data SearchState = SearchState [BitVector] [BitVector]
-
-makeTestVectors activeBitMask nGroups = (map maskFunc bitVectors, map maskFunc complements)
+makeTestVectors input activeBitMask nGroups = (map maskFunc bitVectors, map maskFunc complements)
   where chunks = chunkInputs input nGroups
         bitVectors = map (makeBitVector (bitSize activeBitMask) True) chunks
         complements = map complement bitVectors
         maskFunc = (activeBitMask .&.)
 
+updateCache testSet result = do
+  (cache, smallestInputSoFar) <- get
+  put (T.insert (toByteString testSet) result cache, smallestInputSoFar)
+
 -- State is the result cache and the smallest failing input
-ddmin testFunc input = evalState (ddmin' initActiveBits 2) (T.empty, input)
+ddmin :: [a] -> ([a] -> IO Outcome) -> IO [a]
+ddmin input testFunc = evalState (ddmin' initActiveBits 2) (T.empty, input)
   where inputLen = length input
+        indexedInput = zip [0..] input
         initActiveBits = makeBitVector inputLen False []
         ddmin' activeBits nGroups = do
-          let (divs, complements) = makeTestVectors activeBits nGroups
-          res <- internalTest $ append divs complements
+          let (divs, complements) = makeTestVectors input activeBits nGroups
+          res <- internalTest $ divs ++ complements
           (cache, smallestInputSoFar) <- get
           case res of
-            -- Unresolved
-            Nothing -> if nGroups == inputLen
-                         -- Done
-                         then return smallestInputSoFar
-                         -- Increase granularity
-                         else ddmin' activeBits (nGroups * 2)
-            Just failingInput -> ddmin' (makeBitVector inputLen True failingInput) nGroups
+            Nothing -> if nGroups == inputLen then return smallestInputSoFar else ddmin' activeBits (nGroups * 2)
+            Just failingInput -> ddmin' (makeBitVector inputLen True (testSetToList failingInput)) nGroups
         internalTest [] = return Nothing
         internalTest (testSet:rest) = do
-          -- TODO: Convert testSet to a list of the inputs
-          (cache, smallestInputSoFar) <- get
-          case testFunc testSet of
-            Pass -> do
-              put (T.insert (toByteString testSet) Pass cache, smallestInputSoFar)
-              internalTest rest
-            Unresolved -> do
-              put (T.insert (toByteString testSet) Unresolved cache, smallestInputSoFar)
-              internalTest rest
-            Fail -> do
-              put (T.insert (toByteString testSet) Fail cache, smallestInputSoFar)
-              return $ Just testSet
+          result <- testFunc $ testSetToList testSet
+          updateCache testSet result
+          case result of
+            Pass -> internalTest rest
+            Unresolved -> internalTest rest
+            Fail -> return $ Just testSet
+        testSetToList ts = map (\(idx, val) -> val) chosenTuples
+          where chosenTuples = filter (\(idx, val) -> testBit ts idx) indexedInput
 
+f ioref input = do
+  putStrLn $ "Testing: " ++ input
+  rval <- readIORef ioref
+  writeIORef ioref (tail rval)
+  return $ head rval
 
 main = do
-  minimizedInput <- ddmin f [0..20]
+  let input = [0..20]
+  r <- newIORef outcomes
+  minimizedInput <- ddmin input (f r)
+  putStrLn $ show minimizedInput
   -- let initialActive = makeBitVector (length input) False []
   -- let (divs, compls) = makeTestVectors (makeBitVector (length input) False []) 4
   -- putStrLn $ show divs

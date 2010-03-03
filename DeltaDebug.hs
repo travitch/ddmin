@@ -15,35 +15,15 @@ data Outcome = Fail
              | Pass
              | Unresolved
 
--- type DeltaState = V.Vector
-type Cache = Trie Outcome
-
 -- Outer driver should have three modes:
 -- * Top-level C/C++ decls
 -- * line-by-line
 -- * whitespace tokens
 -- * characters
 
--- Store deltas as a bytestring and write a layer for flipping a list of bits
--- Convert to a bytestring to store in a trie (bytestring-trie)
-
--- | Given deltas and a testing function, return the minimum input
--- ddmin :: [String] -> ([String] -> IO Outcome) -> IO [String]
--- ddmin deltas tester = ddmin' vec0 cache0 2
---     where len     = length deltas
---           vec0    = V.replicate len 1 -- Start with all deltas in the input
---           cache0  = empty
---           deltas' = zip [0..] deltas
---           ddmin' vec cache nsubsets = do
---             return len
-
-
--- input = [0..20]
 outcomes = [ Unresolved, Unresolved
            , Unresolved, Pass, Pass, Unresolved, Unresolved, Fail
            , Unresolved, Pass, Unresolved, Unresolved, Fail, Fail, Fail, Fail, Fail, Fail, Fail, Fail ]
-
-type Chunk a = [a]
 
 chunkInputs :: [a] -> Int -> [[a]]
 chunkInputs inp numberOfChunks = reverse $ chunkInputs' inp []
@@ -54,39 +34,66 @@ chunkInputs inp numberOfChunks = reverse $ chunkInputs' inp []
              else lst : accum
         chunkSize = ceiling $ (fromIntegral $ length inp) / (fromIntegral numberOfChunks)
 
-makeTestVectors input activeBitMask nGroups = (map maskFunc bitVectors, map maskFunc complements)
-  where chunks = chunkInputs input nGroups
-        bitVectors = map (makeBitVector (bitSize activeBitMask) True) chunks
+extractIndexedData idat = map (\(idx, dat) -> dat) idat
+
+extractIndices idat = map (\(idx, dat) -> idx) idat
+
+indexedToVector idat len = makeBitVector len True (extractIndices idat)
+
+makeTestVectors input vecLen nGroups = (map maskFunc bitVectors, map maskFunc complements)
+  where chunks = chunkInputs (extractIndices input) nGroups
+        bitVectors = map (makeBitVector vecLen True) chunks
         complements = map complement bitVectors
         maskFunc = (activeBitMask .&.)
+        activeBitMask = indexedToVector input vecLen
 
 updateCache testSet result = do
   (cache, smallestInputSoFar) <- get
   put (T.insert (toByteString testSet) result cache, smallestInputSoFar)
 
--- State is the result cache and the smallest failing input
+
+-- | Given an input sequence and a function that can test
+-- sub-sequences for failures, return the minimal failing input as per
+-- Zeller 02
 ddmin :: [a] -> ([a] -> IO Outcome) -> IO [a]
-ddmin input testFunc = evalState (ddmin' initActiveBits 2) (T.empty, input)
+ddmin input testFunc = do
+  smallestFailure <- evalStateT (ddmin' initialIndexedInput 2) (T.empty, input)
+  return smallestFailure
   where inputLen = length input
-        indexedInput = zip [0..] input
-        initActiveBits = makeBitVector inputLen False []
-        ddmin' activeBits nGroups = do
-          let (divs, complements) = makeTestVectors input activeBits nGroups
-          res <- internalTest $ divs ++ complements
+        initialIndexedInput = zip [0..] input
+
+        -- | Recursively decompose the input sequence as per the ddmin
+        -- algorithm described in Zeller 02.
+        ddmin' currentInput nGroups = do
+          let (divs, complements) = makeTestVectors currentInput inputLen nGroups
+          divRes <- internalTest divs
+          complRes <- internalTest complements
+
           (cache, smallestInputSoFar) <- get
-          case res of
-            Nothing -> if nGroups == inputLen then return smallestInputSoFar else ddmin' activeBits (nGroups * 2)
-            Just failingInput -> ddmin' (makeBitVector inputLen True (testSetToList failingInput)) nGroups
+
+          case (divRes, complRes) of
+            (Nothing, Nothing) -> if nGroups == inputLen
+                                    then return smallestInputSoFar
+                                    else ddmin' currentInput (nGroups * 2)
+            (Just failingInput, Nothing) -> ddmin' (testSetToIndexed failingInput) 2
+            (Nothing, Just failingInput) -> ddmin' (testSetToIndexed failingInput) (nGroups - 1)
+
+        -- | Run the actual test on the first bitvector it is given.
+        -- Returns Just the first failing test OR Nothing if all tests
+        -- are unresolved
         internalTest [] = return Nothing
         internalTest (testSet:rest) = do
-          result <- testFunc $ testSetToList testSet
+          result <- liftIO $ testFunc $ testSetToList testSet
           updateCache testSet result
           case result of
             Pass -> internalTest rest
             Unresolved -> internalTest rest
             Fail -> return $ Just testSet
-        testSetToList ts = map (\(idx, val) -> val) chosenTuples
-          where chosenTuples = filter (\(idx, val) -> testBit ts idx) indexedInput
+
+        testSetToList ts = extractIndexedData chosenTuples
+          where chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput
+        testSetToIndexed ts = filter (bitForIndexIsSet ts) initialIndexedInput
+        bitForIndexIsSet ts (idx, val) = testBit ts idx
 
 f ioref input = do
   putStrLn $ "Testing: " ++ show input
@@ -99,22 +106,4 @@ main = do
   r <- newIORef outcomes
   minimizedInput <- ddmin input (f r)
   putStrLn $ show minimizedInput
-  -- let initialActive = makeBitVector (length input) False []
-  -- let (divs, compls) = makeTestVectors (makeBitVector (length input) False []) 4
-  -- putStrLn $ show divs
-  -- putStrLn $ show compls
 
-  -- let mask2 = head $ tail compls
-  --     (divs2, compls2) = makeTestVectors mask2 4
-
-  -- putStrLn $ "Mask: " ++ show mask2
-  -- putStrLn $ show divs2
-  -- putStrLn $ show compls2
-
-  -- let initActivePieces = makeBitVector (length input) False []
-  --     initialChunks = chunkInputs input 2
-  --     initBitVectors = map (makeBitVector (length input) False) initialChunks
-  -- putStrLn $ show initActivePieces
-  -- putStrLn $ show $ chunkInputs input 5
-  -- putStrLn $ show initBitVectors
-  -- putStrLn $ show $ map complement initBitVectors

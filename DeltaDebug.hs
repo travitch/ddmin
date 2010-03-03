@@ -89,7 +89,7 @@ ddmin input testFunc = evalState (ddmin' initActiveBits 2) (T.empty, input)
           where chosenTuples = filter (\(idx, val) -> testBit ts idx) indexedInput
 
 f ioref input = do
-  putStrLn $ "Testing: " ++ input
+  putStrLn $ "Testing: " ++ show input
   rval <- readIORef ioref
   writeIORef ioref (tail rval)
   return $ head rval

@@ -11,6 +11,11 @@ import Data.Trie as T
 import Data.BitVector
 import Data.Word
 
+import Debug.Trace
+
+debug = flip trace
+
+
 data Outcome = Fail
              | Pass
              | Unresolved
@@ -47,10 +52,19 @@ makeTestVectors input vecLen nGroups = (map maskFunc bitVectors, map maskFunc co
         maskFunc = (activeBitMask .&.)
         activeBitMask = indexedToVector input vecLen
 
-updateCache testSet result = do
+updateCache testSet indexedList result = do
   (cache, smallestInputSoFar) <- get
-  put (T.insert (toByteString testSet) result cache, smallestInputSoFar)
+  let bytestring = toByteString testSet
+      updatedCache = T.insert bytestring result cache
+  if length indexedList < length smallestInputSoFar
+     then put (updatedCache, smallestInputSoFar)
+     else put (updatedCache, indexedList)
 
+wasTested :: BitVector -> StateT (Trie Outcome, [a]) IO (Maybe Outcome)
+wasTested testSet = do
+  let bytestring = toByteString testSet
+  (cache, si) <- get
+  return $ T.lookup bytestring cache
 
 -- | Given an input sequence and a function that can test
 -- sub-sequences for failures, return the minimal failing input as per
@@ -62,19 +76,22 @@ ddmin input testFunc = do
   where inputLen = length input
         initialIndexedInput = zip [0..] input
 
+        testSetToIndexed ts = filter (bitForIndexIsSet ts) initialIndexedInput
+        bitForIndexIsSet ts (idx, val) = testBit ts idx
+
         -- | Recursively decompose the input sequence as per the ddmin
         -- algorithm described in Zeller 02.
         ddmin' currentInput nGroups = do
           let (divs, complements) = makeTestVectors currentInput inputLen nGroups
-          divRes <- internalTest divs
-          complRes <- internalTest complements
+          divRes <- internalTest testFunc initialIndexedInput divs
+          complRes <- internalTest testFunc initialIndexedInput complements
 
-          (cache, smallestInputSoFar) <- get
+          (cache, smallestInput) <- get
 
           case divRes of
             Nothing -> case complRes of
-                         Nothing -> if nGroups == inputLen
-                                       then return smallestInputSoFar -- Done
+                         Nothing -> if length input == nGroups
+                                       then return smallestInput -- Done
                                        else ddmin' currentInput (nGroups * 2) -- Increase granularity
                          Just failingInput -> ddmin' (testSetToIndexed failingInput) (nGroups - 1) -- Reduce to complement
             Just failingInput -> ddmin' (testSetToIndexed failingInput) 2 -- Reset granularity
@@ -82,19 +99,27 @@ ddmin input testFunc = do
         -- | Run the actual test on the first bitvector it is given.
         -- Returns Just the first failing test OR Nothing if all tests
         -- are unresolved
-        internalTest [] = return Nothing
-        internalTest (testSet:rest) = do
-          result <- liftIO $ testFunc $ testSetToList testSet
-          updateCache testSet result
+
+internalTest testFunc initialIndexedInput [] = return Nothing
+internalTest testFunc initialIndexedInput (testSet:rest) = do
+  previousResult <- wasTested testSet
+  testIfNecessary previousResult testSet rest
+
+  where testIfNecessary Nothing testSet rest = do
+          result <- liftIO $ testFunc $ indexedList `debug` (" TS: " ++ show testSet)
+          updateCache testSet indexedList result
+          dispatchResult result testSet rest
+          where indexedList = testSetToList testSet
+        testIfNecessary (Just result) testSet rest = dispatchResult result testSet rest
+        dispatchResult result testSet rest =
           case result of
-            Pass -> internalTest rest
-            Unresolved -> internalTest rest
+            Pass -> internalTest testFunc initialIndexedInput rest
+            Unresolved -> internalTest testFunc initialIndexedInput rest
             Fail -> return $ Just testSet
 
+        bitForIndexIsSet ts (idx, val) = testBit ts idx
         testSetToList ts = extractIndexedData chosenTuples
           where chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput
-        testSetToIndexed ts = filter (bitForIndexIsSet ts) initialIndexedInput
-        bitForIndexIsSet ts (idx, val) = testBit ts idx
 
 f ioref input = do
   putStrLn $ "Testing: " ++ show input

@@ -94,8 +94,8 @@ ddmin input testFunc = do
              then return smallestInput -- Done
              else case divRes of
                    Nothing -> case complRes of
-                                Nothing -> ddmin' currentInput (nGroups * 2) -- Increase granularity
-                                Just failingInput -> ddmin' (testSetToIndexed failingInput) (nGroups - 1) -- Reduce to complement
+                                Nothing -> ddmin' currentInput (min (nGroups * 2) (length currentInput)) -- Increase granularity
+                                Just failingInput -> ddmin' (testSetToIndexed failingInput) (max (nGroups - 1) 2) -- Reduce to complement
                    Just failingInput -> ddmin' (testSetToIndexed failingInput) 2 -- Reset granularity
 
 -- | Run the actual test on the first bitvector it is given.  Returns

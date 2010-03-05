@@ -35,6 +35,7 @@ instance Bits BitVector where
   (.&.) = bitOp (.&.)
   (.|.) = bitOp (.|.)
   xor   = bitOp xor
+  testBit (BitVector v u) i = testBit v i
   complement (BitVector v u) = BitVector (complement v) u
   -- Find out which bits are set, add or subtract n from each one, then filter out indices out of bounds.
   shift (BitVector v u) i = BitVector (shift v i) u
@@ -52,7 +53,7 @@ internalShow bv0 = concatMap byteToString $ BS.unpack bv
 byteToString byte = concat $ map f [0..7]
   where f i = if testBit byte i then "1" else "0"
 
-indexGroupToByte baseByte thisGroup = byte  `debug` (" igb: " ++ show modGroup ++ " " ++ show byte)
+indexGroupToByte baseByte thisGroup = byte
   where modGroup = map (\x -> mod x 8) thisGroup
         byte = foldl' complementBit baseByte modGroup
 
@@ -63,14 +64,14 @@ groupBitsByByte bitsSet = groupBy bitsGrouped sortedIndices
 
 makeBitVector nBits initVal bitsSet =
   if nBits >= 0
-    then BitVector bv (8-leftoverBits) `debug` ( " groups: " ++ show byteGroups ) -- `debug` (" rev " ++ show bv)
+    then BitVector bv (8-leftoverBits)
     else error "BitVectors cannot have negative length"
   where baseByte = if initVal then 0 else (-1) :: Word8
         (fullBytes, leftoverBits) = nBits `divMod` 8
         totalBytes = fullBytes + signum leftoverBits
 
         byteGroups = groupBitsByByte bitsSet
-        bv = BS.pack $ byteList `debug` ( "byteList = " ++ show byteList )
+        bv = BS.pack byteList
         indexOfGroup (firstIdx:rest) = firstIdx `div` 8
         byteAccum (idx, []) | idx < totalBytes = Just (baseByte, (idx+1, []))
         byteAccum (idx, grp:rest) = if idx == indexOfGroup grp
@@ -82,7 +83,7 @@ makeBitVector nBits initVal bitsSet =
 maskUnusedBits bv@(BitVector v unusedBits) =
   if unusedBits == 0
      then v
-     else v .&. bitmask `debug` (" mask " ++ show bitmask)
+     else v .&. bitmask
   where bitmask = BS.pack $ reverse $ (indexGroupToByte 0 [0..(8-unusedBits-1)]) : baseBS
         baseBS = replicate (BS.length v - 1) (-1)
 
@@ -97,3 +98,4 @@ main = do
             , complement $ (makeBitVector 10 True [2, 5]) .|. (makeBitVector 10 True [9])
               ]
   mapM_ (\x -> putStrLn $ "\n" ++ show x) bvs
+  mapM_ (\x -> putStrLn $ "\n" ++ (show $ testBit x 0)) bvs

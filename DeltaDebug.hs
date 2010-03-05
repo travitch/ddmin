@@ -5,7 +5,7 @@
 
 import Control.Monad.State
 import Data.IORef
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BS
 import Data.Bits
 import Data.Trie as T
 import Data.BitVector
@@ -71,12 +71,13 @@ ddmin input testFunc = do
 
           (cache, smallestInputSoFar) <- get
 
-          case (divRes, complRes) of
-            (Nothing, Nothing) -> if nGroups == inputLen
-                                    then return smallestInputSoFar
-                                    else ddmin' currentInput (nGroups * 2)
-            (Just failingInput, Nothing) -> ddmin' (testSetToIndexed failingInput) 2
-            (Nothing, Just failingInput) -> ddmin' (testSetToIndexed failingInput) (nGroups - 1)
+          case divRes of
+            Nothing -> case complRes of
+                         Nothing -> if nGroups == inputLen
+                                       then return smallestInputSoFar -- Done
+                                       else ddmin' currentInput (nGroups * 2) -- Increase granularity
+                         Just failingInput -> ddmin' (testSetToIndexed failingInput) (nGroups - 1) -- Reduce to complement
+            Just failingInput -> ddmin' (testSetToIndexed failingInput) 2 -- Reset granularity
 
         -- | Run the actual test on the first bitvector it is given.
         -- Returns Just the first failing test OR Nothing if all tests

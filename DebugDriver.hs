@@ -11,6 +11,15 @@ fileAsInputLines filename = do
 
 fileAsInputChars filename = readFile filename
 
+getCombinedOutput hOut hErr = do
+  realOut <- hGetContents hOut
+  realErr <- hGetContents hErr
+
+  let combinedOut = realOut ++ "\n" ++ realErr
+  putStrLn combinedOut
+
+  return combinedOut
+
 testFunc failureText lines = do
   let fileContents = lines
       procDesc = proc "/s/gcc-2.95/bin/gcc" ["-O2", "-xc", "-"]
@@ -20,16 +29,19 @@ testFunc failureText lines = do
                           , close_fds = False
                           }
   (Just hIn, Just hOut, Just hErr, p) <- createProcess params
-  -- putStrLn fileContents
+
   hPutStr hIn fileContents
   hClose hIn
-  realOut <- hGetContents hOut
-  realErr <- hGetContents hErr
-  exitCode <- waitForProcess p
-  putStrLn (realErr ++ "\n" ++ realOut)
-  hClose hErr
+
+  combinedOutput <- getCombinedOutput hOut hErr
   hClose hOut
-  let errText = pack (realErr ++ "\n" ++ realOut)
+  hClose hErr
+
+  exitCode <- waitForProcess p
+
+  putStrLn combinedOutput
+
+  let errText = pack combinedOutput
   case exitCode of
     ExitSuccess -> (putStrLn "ExitSuccess") >> return Pass
     ExitFailure c -> if isInfixOf failureText errText
@@ -38,6 +50,6 @@ testFunc failureText lines = do
 
 main = do
   let failureText = pack "Internal compiler error"
-  input <- fileAsInputChars "bug2.c"
+  input <- fileAsInputChars "bug.c"
   minInput <- ddmin input (testFunc failureText)
   putStrLn $ "Smallest input: \n" ++ minInput

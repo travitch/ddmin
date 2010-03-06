@@ -1,50 +1,27 @@
--- module DeltaDebug ( ddmin
---                   , Outcome(..)
---                   ) where
-
+module DeltaDebug ( ddmin
+                  , Outcome(..)
+                  ) where
 
 import Control.Monad.State
-import Data.IORef
 import qualified Data.ByteString.Lazy as BS
 import Data.Bits
+import Data.List.Split (chunk)
 import Data.Trie as T
 import Data.BitVector
 import Data.Word
 
-import Debug.Trace
+-- import Debug.Trace
+-- debug = flip trace
 
-debug = flip trace
-
-
-data Outcome = Fail
-             | Pass
-             | Unresolved
-
--- Outer driver should have three modes:
--- * Top-level C/C++ decls
--- * line-by-line
--- * whitespace tokens
--- * characters
-
-outcomes = [ Unresolved, Unresolved
-           , Unresolved, Pass, Pass, Unresolved, Unresolved, Fail
-           , Unresolved, Pass, Unresolved, Unresolved, Fail, Fail, Fail, Fail, Fail, Fail, Fail, Fail ]
-
-chunkInputs :: [a] -> Int -> [[a]]
-chunkInputs inp numberOfChunks = reverse $ chunkInputs' inp []
-  where chunkInputs' lst accum =
-          let (c, rest) = splitAt chunkSize lst
-          in if length lst > chunkSize
-             then chunkInputs' rest $ c : accum
-             else lst : accum
-        chunkSize = ceiling $ (fromIntegral $ length inp) / (fromIntegral numberOfChunks)
+data Outcome = Fail | Pass | Unresolved
+             deriving (Eq,Show)
 
 extractIndexedData idat = map (\(idx, dat) -> dat) idat
 extractIndices idat = map (\(idx, dat) -> idx) idat
 indexedToVector idat len = makeBitVector len True (extractIndices idat)
 
 makeTestVectors input vecLen nGroups = (map maskFunc bitVectors, map maskFunc complements)
-  where chunks = chunkInputs (extractIndices input) nGroups
+  where chunks = chunk nGroups (extractIndices input)
         bitVectors = map (makeBitVector vecLen True) chunks
         complements = map complement bitVectors
         maskFunc = (activeBitMask .&.)
@@ -55,9 +32,8 @@ updateCache testSet indexedList result = do
   let bytestring = toByteString testSet
       updatedCache = T.insert bytestring result cache
   case result of
-    Fail | length indexedList < length smallestInputSoFar -> put (updatedCache, indexedList) `debug` ("  Updating cache with " ++ show indexedList)
-    _ -> put (updatedCache, smallestInputSoFar) `debug` "  Updating cache with smallest input remaining the same"
-
+    Fail | length indexedList < length smallestInputSoFar -> put (updatedCache, indexedList)
+    _ -> put (updatedCache, smallestInputSoFar)
 
 wasTested :: BitVector -> StateT (Trie Outcome, [a]) IO (Maybe Outcome)
 wasTested testSet = do
@@ -65,9 +41,8 @@ wasTested testSet = do
   (cache, si) <- get
   return $ T.lookup bytestring cache
 
--- | Given an input sequence and a function that can test
--- sub-sequences for failures, return the minimal failing input as per
--- Zeller 02
+-- | Given an input sequence and a function that can test sub-sequences
+-- | for failures, return the minimal failing input as per Zeller 02
 ddmin :: Show a => [a] -> ([a] -> IO Outcome) -> IO [a]
 ddmin input testFunc = do
   smallestFailure <- evalStateT (ddmin' initialIndexedInput 2) (T.empty, input)
@@ -87,16 +62,16 @@ ddmin input testFunc = do
 
           (cache, smallestInput) <- get
 
-          liftIO $ putStrLn $ show (divRes, complRes)
-          liftIO $ putStrLn $ show (currentInput, nGroups)
-
           if length currentInput == nGroups
              then return smallestInput -- Done
              else case divRes of
                    Nothing -> case complRes of
-                                Nothing -> ddmin' currentInput (min (nGroups * 2) (length currentInput)) -- Increase granularity
-                                Just failingInput -> ddmin' (testSetToIndexed failingInput) (max (nGroups - 1) 2) -- Reduce to complement
-                   Just failingInput -> ddmin' (testSetToIndexed failingInput) 2 -- Reset granularity
+                                -- Increase granularity
+                                Nothing -> ddmin' currentInput (min (nGroups * 2) (length currentInput))
+                                -- Reduce to complement
+                                Just failingInput -> ddmin' (testSetToIndexed failingInput) (max (nGroups - 1) 2)
+                   -- Reset granularity
+                   Just failingInput -> ddmin' (testSetToIndexed failingInput) 2
 
 -- | Run the actual test on the first bitvector it is given.  Returns
 -- Just the first failing test OR Nothing if all tests are unresolved
@@ -106,7 +81,7 @@ internalTest testFunc initialIndexedInput (testSet:rest) = do
   testIfNecessary previousResult testSet rest
 
   where testIfNecessary Nothing testSet rest = do
-          result <- liftIO $ testFunc $ indexedList `debug` (" TS: " ++ show testSet)
+          result <- liftIO $ testFunc $ indexedList
           updateCache testSet indexedList result
           dispatchResult result testSet rest
           where indexedList = testSetToList testSet
@@ -121,15 +96,4 @@ internalTest testFunc initialIndexedInput (testSet:rest) = do
         testSetToList ts = extractIndexedData chosenTuples
           where chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput
 
-f ioref input = do
-  putStrLn $ "Testing: " ++ show input
-  rval <- readIORef ioref
-  writeIORef ioref (tail rval)
-  return $ head rval
-
-main = do
-  let input = [0..20]
-  r <- newIORef outcomes
-  minimizedInput <- ddmin input (f r)
-  putStrLn $ show minimizedInput
 

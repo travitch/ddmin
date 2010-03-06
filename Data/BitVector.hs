@@ -1,9 +1,6 @@
 module Data.BitVector ( BitVector(..)
                       , makeBitVector
                       , toByteString
-                      -- , clearBits
-                      -- , setBits
-                      -- , complementBits
                       ) where
 
 import Data.Bits
@@ -12,9 +9,8 @@ import Data.ByteString.Num
 import Data.List (unfoldr, foldl', groupBy, sort, replicate)
 import Data.Word
 
-import Debug.Trace
-
-debug = flip trace
+-- import Debug.Trace
+-- debug = flip trace
 
 
 data BitVector = BitVector BS.ByteString Int
@@ -89,13 +85,3 @@ maskUnusedBits bv@(BitVector v unusedBits) =
 
 -- Need to mask out the high unused bits
 toByteString bv = maskUnusedBits bv
-
-main = do
-  let bvs = [ makeBitVector 10 True [2, 5]
-            , makeBitVector 10 True [0]
-            , makeBitVector 10 True [9]
-            , (makeBitVector 10 True [2, 5]) .|. (makeBitVector 10 True [9])
-            , complement $ (makeBitVector 10 True [2, 5]) .|. (makeBitVector 10 True [9])
-              ]
-  mapM_ (\x -> putStrLn $ "\n" ++ show x) bvs
-  mapM_ (\x -> putStrLn $ "\n" ++ (show $ testBit x 0)) bvs

@@ -13,13 +13,15 @@ data Config = Config { search_combined :: String
                      , search_error    :: String
                      , search_out      :: String
                      , input_file      :: String
-                     , cmdLine        :: [String]
+                     , saved_output    :: String
+                     , cmdLine         :: [String]
                        } deriving (Show, Data, Typeable)
 
 config = mode $ Config { search_combined = def &= text "Search the combined stdout and stderr for a regex" & typ "REGEX"
                        , search_error    = def &= text "Search stderr for a regex" & typ "REGEX"
                        , search_out      = def &= text "Search stdout for a regex" & typ "REGEX"
                        , input_file      = def &= text "The input file to be minimized" & typFile
+                       , saved_output    = def &= text "Save the latest failing test to a file" & typFile
                        , cmdLine         = def &= args
                        }
 
@@ -55,6 +57,7 @@ getCombinedOutput hOut hErr = do
 
   return combinedOut
 
+saveOutput "" fileContents = return ()
 saveOutput destination fileContents =
   withFile destination WriteMode $ flip hPutStr fileContents
 
@@ -87,7 +90,7 @@ testFunc cfg lines = do
   case exitCode of
     ExitSuccess -> putStrLn "ExitSuccess" >> return Pass
     ExitFailure c -> if combinedOutput =~ failureRegex
-                       then putStrLn "Fail" >> saveOutput ("saved-output." ++ fileExt) fileContents >> return Fail
+                       then putStrLn "Fail" >> saveOutput (saved_output cfg) fileContents >> return Fail
                        else putStrLn "Unresolved" >> return Unresolved
 
 lineIsNotBlank "\n" = False

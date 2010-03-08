@@ -5,7 +5,7 @@ import Directory
 import System.Console.CmdArgs
 import System.Exit
 import System.FilePath
-import System.IO (hPutStr, hClose, hGetContents, withFile, openTempFile, IOMode(..))
+import System.IO (hPutStr, hClose, hGetContents, withFile, openTempFile, hIsEOF, hGetLine, IOMode(..))
 import System.Process
 import Text.Regex.PCRE hiding (empty)
 
@@ -50,16 +50,6 @@ fileAsInputLines filename = do
 
 fileAsInputChars = readFile
 
--- Merge stdout and stderr
-getCombinedOutput hOut hErr = do
-  realOut <- hGetContents hOut
-  realErr <- hGetContents hErr
-
-  let combinedOut = realOut ++ "\n" ++ realErr
-  putStrLn combinedOut
-
-  return combinedOut
-
 -- If a destination was specified on the command line, save failing
 -- inputs.
 saveOutput "" fileContents = return ()
@@ -82,24 +72,15 @@ testFunc cfg lines = do
 
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
   let expandedArgs = makeTestArgs tempFileName (cmdLine cfg) (unknownArgs cfg)
-      procDesc = proc testExecutable expandedArgs
-      params   = procDesc { std_err = CreatePipe
-                          , std_out = CreatePipe
-                          }
 
   hPutStr tempHandle fileContents
   hClose tempHandle
-  (_, Just hOut, Just hErr, p) <- createProcess params
 
-  combinedOutput <- getCombinedOutput hOut hErr
-
-  exitCode <- waitForProcess p
-  removeFile tempFileName
-
-  hClose hOut
-  hClose hErr
+  (exitCode, outStr, errStr) <- readProcessWithExitCode testExecutable expandedArgs ""
+  let combinedOutput = outStr ++ "\n" ++ errStr
 
   putStrLn combinedOutput
+  removeFile tempFileName
 
   case exitCode of
     ExitSuccess -> putStrLn "ExitSuccess" >> return Pass

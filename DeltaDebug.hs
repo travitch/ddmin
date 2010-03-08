@@ -16,8 +16,8 @@ import Data.Word
 data Outcome = Fail | Pass | Unresolved
              deriving (Eq,Show)
 
-extractIndexedData idat = map (\(idx, dat) -> dat) idat
-extractIndices idat = map (\(idx, dat) -> idx) idat
+extractIndexedData = map snd
+extractIndices = map fst
 indexedToVector idat len = makeBitVector len True (extractIndices idat)
 
 makeTestVectors input vecLen nGroups = (map maskFunc bitVectors, map maskFunc complements)
@@ -44,9 +44,7 @@ wasTested testSet = do
 -- | Given an input sequence and a function that can test sub-sequences
 -- | for failures, return the minimal failing input as per Zeller 02
 ddmin :: Show a => [a] -> ([a] -> IO Outcome) -> IO [a]
-ddmin input testFunc = do
-  smallestFailure <- evalStateT (ddmin' initialIndexedInput 2) (T.empty, input)
-  return smallestFailure
+ddmin input testFunc = evalStateT (ddmin' initialIndexedInput 2) (T.empty, input)
   where inputLen = length input
         initialIndexedInput = zip [0..] input
 
@@ -81,7 +79,7 @@ internalTest testFunc initialIndexedInput (testSet:rest) = do
   testIfNecessary previousResult testSet rest
 
   where testIfNecessary Nothing testSet rest = do
-          result <- liftIO $ testFunc $ indexedList
+          result <- liftIO $ testFunc indexedList
           updateCache testSet indexedList result
           dispatchResult result testSet rest
           where indexedList = testSetToList testSet

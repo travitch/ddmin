@@ -17,17 +17,17 @@ instance Num L.ByteString where
       go as bs =
          let cs = zip [0..] as
              wordMult :: [[Word8]]
-             wordMult = map (\f -> f bs) (map doMult cs)
-         in foldl' (\a b -> a + (L.pack b)) (L.pack [0]) wordMult
+             wordMult = map ((\f -> f bs) . doMult) cs
+         in foldl' (\a b -> a + L.pack b) (L.pack [0]) wordMult
       doMult :: (Int, Word8) -> [Word8] -> [Word8]
-      doMult (i,a) b = (replicate i 0) ++ (byteMult a b 0)
+      doMult (i,a) b = replicate i 0 ++ byteMult a b 0
       byteMult :: Word8 -> [Word8] -> Int -> [Word8]
       byteMult _ [] c = [fromIntegral c]
       byteMult a (b:bs) c =
           let (q,r) = quotRem (fromIntegral a * fromIntegral b + c) 256
           in fromIntegral r : byteMult a bs q
     a - b = byteStrOp (-) a b
-    negate a = (L.replicate (L.length a) 0) - a
+    negate a = L.replicate (L.length a) 0 - a
     abs a = a
     signum a = a `seq` L.pack [1]
     fromInteger i = L.pack $ go i []
@@ -63,7 +63,7 @@ instance Enum L.ByteString where
     succ a = if isMaxBound a then error "succ maxBound" else a + 1
     pred a = if isMinBound a then error "pred minBound" else a - 1
     toEnum i = toStrictByteString $ encode i
-    fromEnum a = fromIntegral a
+    fromEnum = fromIntegral
     enumFrom a = if isMaxBound a then [a] else a : (enumFrom (succ a))
     enumFromThen start cnt = normalized go start cnt
         where
@@ -129,7 +129,7 @@ instance Bits L.ByteString where
     (.&.) = normalized (byteStrOp (.&.))
     (.|.) = normalized (byteStrOp (.|.))
     xor = normalized (byteStrOp xor)
-    complement a =  L.map complement a
+    complement =  L.map complement
     a `shift` i = asInteger (`shift` i) a
     a `rotate` i = asInteger (`rotate` i) a
     bit i =
@@ -145,7 +145,7 @@ instance Bits L.ByteString where
              (w:_) -> testBit w m
     bitSize a = 8 * fromIntegral (L.length a)
     isSigned _ = False
-    shiftL a i = shift a i
+    shiftL = shift
     shiftR a i = shift a (-i)
-    rotateL a i = rotate a i
+    rotateL = rotate
     rotateR a i = rotate a (-i)

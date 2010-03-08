@@ -31,26 +31,26 @@ instance Bits BitVector where
   (.&.) = bitOp (.&.)
   (.|.) = bitOp (.|.)
   xor   = bitOp xor
-  testBit (BitVector v u) i = testBit v i
+  testBit (BitVector v u) = testBit v
   complement (BitVector v u) = BitVector (complement v) u
   -- Find out which bits are set, add or subtract n from each one, then filter out indices out of bounds.
   shift (BitVector v u) i = BitVector (shift v i) u
   rotate (BitVector v u) i = BitVector (rotate v i) u
-  bitSize (BitVector v u) = 8 * (length $ BS.unpack v) - u
+  bitSize (BitVector v u) = 8 * length (BS.unpack v) - u
   isSigned bv = False
 
 bitOp op (BitVector v1 u1) (BitVector v2 u2) = BitVector newV newU
   where newV = v1 `op` v2
-        newU = if (BS.length v1) > (BS.length v2) then u1 else u2
+        newU = if BS.length v1 > BS.length v2 then u1 else u2
 
 
 internalShow bv0 = concatMap byteToString $ BS.unpack bv
   where bv = maskUnusedBits bv0
-byteToString byte = concat $ map f [0..7]
+byteToString byte = concatMap f [0..7]
   where f i = if testBit byte i then "1" else "0"
 
 indexGroupToByte baseByte thisGroup = byte
-  where modGroup = map (\x -> mod x 8) thisGroup
+  where modGroup = map (`mod` 8) thisGroup
         byte = foldl' complementBit baseByte modGroup
 
 groupBitsByByte bitsSet = groupBy bitsGrouped sortedIndices
@@ -62,7 +62,7 @@ makeBitVector nBits initVal bitsSet =
   if nBits >= 0
     then BitVector bv (8-leftoverBits)
     else error "BitVectors cannot have negative length"
-  where baseByte = if initVal then 0 else (-1) :: Word8
+  where baseByte = if initVal then 0 else -1 :: Word8
         (fullBytes, leftoverBits) = nBits `divMod` 8
         totalBytes = fullBytes + signum leftoverBits
 
@@ -80,8 +80,8 @@ maskUnusedBits bv@(BitVector v unusedBits) =
   if unusedBits == 0
      then v
      else v .&. bitmask
-  where bitmask = BS.pack $ reverse $ (indexGroupToByte 0 [0..(8-unusedBits-1)]) : baseBS
+  where bitmask = BS.pack $ reverse $ indexGroupToByte 0 [0..(8-unusedBits-1)] : baseBS
         baseBS = replicate (BS.length v - 1) (-1)
 
 -- Need to mask out the high unused bits
-toByteString bv = maskUnusedBits bv
+toByteString = maskUnusedBits

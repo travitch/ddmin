@@ -1,9 +1,11 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 import DeltaDebug
 import DeltaDebug.InputStrategies
+import Directory
 import System.Console.CmdArgs
 import System.Exit
-import System.IO (hPutStr, hClose, hGetContents, withFile, IOMode(..))
+import System.FilePath
+import System.IO (hPutStr, hClose, hGetContents, withFile, openTempFile, IOMode(..))
 import System.Process
 import Text.Regex.PCRE hiding (empty)
 
@@ -59,17 +61,24 @@ testFunc cfg lines = do
   let fileContents = concat lines
       failureRegex = getSearchRegex cfg
       testExecutable = getTestExecutable cfg
+      (originalFilename, fileExt) = splitExtension $ input_file cfg
+
+  (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
       -- procDesc = proc "/u/t/r/travitch/private/research/sampler_cc_rose/bin/identity-unparser" ["-rose:unparse_includes", "input.cpp", "-c"]
-      procDesc = proc testExecutable $ makeTestArgs "input.cpp" $ cmdLine cfg
+
+  let procDesc = proc testExecutable $ makeTestArgs "input.cpp" $ cmdLine cfg
       params   = procDesc { std_err = CreatePipe
                           , std_out = CreatePipe
                           }
-  withFile "input.cpp" WriteMode $ flip hPutStr fileContents
+  -- withFile "input.cpp" WriteMode $ flip hPutStr fileContents
+  hPutStr tempHandle fileContents
+  hClose tempHandle
   (_, Just hOut, Just hErr, p) <- createProcess params
 
   combinedOutput <- getCombinedOutput hOut hErr
 
   exitCode <- waitForProcess p
+  removeFile tempFileName
   -- hClose hOut
   -- hClose hErr
 

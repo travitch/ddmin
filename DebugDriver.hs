@@ -9,24 +9,26 @@ import System.IO (hPutStr, hClose, hGetContents, withFile, openTempFile, IOMode(
 import System.Process
 import Text.Regex.PCRE hiding (empty)
 
-data Config = Config { search_combined :: String
-                     , search_error    :: String
-                     , search_out      :: String
-                     , input_file      :: String
-                     , saved_output    :: String
-                     , cmdLine         :: [String]
+data Config = Config { searchCombined :: String
+                     , searchError    :: String
+                     , searchOut      :: String
+                     , inputFile      :: String
+                     , savedOutput    :: String
+                     , cmdLine        :: [String]
+                     , unknownArgs    :: [String]
                        } deriving (Show, Data, Typeable)
 
-config = mode $ Config { search_combined = def &= text "Search the combined stdout and stderr for a regex" & typ "REGEX"
-                       , search_error    = def &= text "Search stderr for a regex" & typ "REGEX"
-                       , search_out      = def &= text "Search stdout for a regex" & typ "REGEX"
-                       , input_file      = def &= text "The input file to be minimized" & typFile
-                       , saved_output    = def &= text "Save the latest failing test to a file" & typFile
-                       , cmdLine         = def &= args
+config = mode $ Config { searchCombined = def &= text "Search the combined stdout and stderr for a regex" & typ "REGEX" & explicit & flag "search-combined"
+                       , searchError    = def &= text "Search stderr for a regex" & typ "REGEX" & explicit & flag "search-error"
+                       , searchOut      = def &= text "Search stdout for a regex" & typ "REGEX" & explicit & flag "search-out"
+                       , inputFile      = def &= text "The input file to be minimized" & typFile & explicit & flag "input-file"
+                       , savedOutput    = def &= text "Save the latest failing test to a file" & typFile & explicit & flag "saved-output"
+                       , cmdLine        = def &= args
+                       , unknownArgs    = def &= unknownFlags
                        }
 
 getSearchRegex cfg =
-  case (search_combined cfg, search_error cfg, search_out cfg) of
+  case (searchCombined cfg, searchError cfg, searchOut cfg) of
     (x, "", "") -> x
     ("", x, "") -> x
     ("", "", x) -> x
@@ -38,7 +40,7 @@ getTestExecutable cfg =
     _ -> error "No command line specified"
 
 -- Replace the ? argument with thisInput
-makeTestArgs thisInput (cmd:args) = map substituteTempFile args
+makeTestArgs thisInput (cmd:args) unknowns = map substituteTempFile (unknowns ++ args)
     where substituteTempFile "?" = thisInput
           substituteTempFile x = x
 
@@ -48,6 +50,7 @@ fileAsInputLines filename = do
 
 fileAsInputChars = readFile
 
+-- Merge stdout and stderr
 getCombinedOutput hOut hErr = do
   realOut <- hGetContents hOut
   realErr <- hGetContents hErr
@@ -57,19 +60,29 @@ getCombinedOutput hOut hErr = do
 
   return combinedOut
 
+-- If a destination was specified on the command line, save failing
+-- inputs.
 saveOutput "" fileContents = return ()
 saveOutput destination fileContents =
   withFile destination WriteMode $ flip hPutStr fileContents
 
+-- | Dumps the current state to a temporary file.  This temporary file
+-- is substituted for the ? argument provided in the skeleton command
+-- line.  If the output matches the regular expression given on the
+-- command line, the test is marked as Fail.  An exit code of 0 is
+-- marked as a Pass, and anything else is Unresolved.  The temporary
+-- file is cleaned up when it is no longer needed (most of the time).
+-- To be truly correct I should use bracket.  The error output is
+-- displayed on stdout to demonstrate progress.
 testFunc cfg lines = do
   let fileContents = concat lines
       failureRegex = getSearchRegex cfg
       testExecutable = getTestExecutable cfg
-      (originalFilename, fileExt) = splitExtension $ input_file cfg
+      (originalFilename, fileExt) = splitExtension $ inputFile cfg
 
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
-
-  let procDesc = proc testExecutable $ makeTestArgs tempFileName $ cmdLine cfg
+  let expandedArgs = makeTestArgs tempFileName (cmdLine cfg) (unknownArgs cfg)
+      procDesc = proc testExecutable expandedArgs
       params   = procDesc { std_err = CreatePipe
                           , std_out = CreatePipe
                           }
@@ -82,15 +95,16 @@ testFunc cfg lines = do
 
   exitCode <- waitForProcess p
   removeFile tempFileName
-  -- hClose hOut
-  -- hClose hErr
+
+  hClose hOut
+  hClose hErr
 
   putStrLn combinedOutput
 
   case exitCode of
     ExitSuccess -> putStrLn "ExitSuccess" >> return Pass
     ExitFailure c -> if combinedOutput =~ failureRegex
-                       then putStrLn "Fail" >> saveOutput (saved_output cfg) fileContents >> return Fail
+                       then putStrLn "Fail" >> saveOutput (savedOutput cfg) fileContents >> return Fail
                        else putStrLn "Unresolved" >> return Unresolved
 
 lineIsNotBlank "\n" = False
@@ -99,7 +113,7 @@ lineIsNotBlank _ = True
 main = do
   cfg <- cmdArgs "A Haskell implementation of the ddmin algorithm" [config]
 
-  input <- fileAsInputLines $ input_file cfg
+  input <- fileAsInputLines $ inputFile cfg
 
   let inputWithoutBlanks = filter lineIsNotBlank input
   minInput <- ddmin inputWithoutBlanks (testFunc cfg)

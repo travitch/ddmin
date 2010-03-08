@@ -1,9 +1,42 @@
-import Text.Regex.PCRE
+{-# LANGUAGE DeriveDataTypeable #-}
 import DeltaDebug
 import DeltaDebug.InputStrategies
+import System.Console.CmdArgs
 import System.Exit
 import System.IO (hPutStr, hClose, hGetContents, withFile, IOMode(..))
 import System.Process
+import Text.Regex.PCRE hiding (empty)
+
+data Config = Config { search_combined :: String
+                     , search_error    :: String
+                     , search_out      :: String
+                     , input_file      :: String
+                     , cmdLine        :: [String]
+                       } deriving (Show, Data, Typeable)
+
+config = mode $ Config { search_combined = def &= text "Search the combined stdout and stderr for a regex" & typ "REGEX"
+                       , search_error    = def &= text "Search stderr for a regex" & typ "REGEX"
+                       , search_out      = def &= text "Search stdout for a regex" & typ "REGEX"
+                       , input_file      = def &= text "The input file to be minimized" & typFile
+                       , cmdLine         = def &= args
+                       }
+
+getSearchRegex cfg =
+  case (search_combined cfg, search_error cfg, search_out cfg) of
+    (x, "", "") -> x
+    ("", x, "") -> x
+    ("", "", x) -> x
+    _ -> error "Only specify one search target supported for now"
+
+getTestExecutable cfg =
+  case cmdLine cfg of
+    exe : args -> exe
+    _ -> error "No command line specified"
+
+-- Replace the ? argument with thisInput
+makeTestArgs thisInput (cmd:args) = map substituteTempFile args
+    where substituteTempFile "?" = thisInput
+          substituteTempFile x = x
 
 fileAsInputLines filename = do
   s <- readFile filename
@@ -22,19 +55,17 @@ getCombinedOutput hOut hErr = do
 
 saveOutput fileContents = withFile "saved_failure.cpp" WriteMode $ flip hPutStr fileContents
 
-testFunc failureRegex lines = do
+testFunc cfg lines = do
   let fileContents = concat lines
-      procDesc = proc "/u/t/r/travitch/private/research/sampler_cc_rose/bin/identity-unparser" ["-rose:unparse_includes", "input.cpp", "-c"]
+      failureRegex = getSearchRegex cfg
+      testExecutable = getTestExecutable cfg
+      -- procDesc = proc "/u/t/r/travitch/private/research/sampler_cc_rose/bin/identity-unparser" ["-rose:unparse_includes", "input.cpp", "-c"]
+      procDesc = proc testExecutable $ makeTestArgs "input.cpp" $ cmdLine cfg
       params   = procDesc { std_err = CreatePipe
                           , std_out = CreatePipe
-                          -- , std_in  = CreatePipe
-                          , close_fds = False
                           }
   withFile "input.cpp" WriteMode $ flip hPutStr fileContents
   (_, Just hOut, Just hErr, p) <- createProcess params
-
-  -- hPutStr hIn fileContents
-  -- hClose hIn
 
   combinedOutput <- getCombinedOutput hOut hErr
 
@@ -54,8 +85,10 @@ lineIsNotBlank "\n" = False
 lineIsNotBlank _ = True
 
 main = do
-  input <- fileAsInputLines "cbi_sampler_test.cpp"
-  let failureRegex = "which does not enclose"
-      inputWithoutBlanks = filter lineIsNotBlank input
-  minInput <- ddmin inputWithoutBlanks (testFunc failureRegex)
+  cfg <- cmdArgs "A Haskell implementation of the ddmin algorithm" [config]
+
+  input <- fileAsInputLines $ input_file cfg
+
+  let inputWithoutBlanks = filter lineIsNotBlank input
+  minInput <- ddmin inputWithoutBlanks (testFunc cfg)
   putStrLn $ "Smallest input: \n" ++ concat minInput

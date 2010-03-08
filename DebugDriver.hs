@@ -66,7 +66,7 @@ testFunc cfg lines = do
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
       -- procDesc = proc "/u/t/r/travitch/private/research/sampler_cc_rose/bin/identity-unparser" ["-rose:unparse_includes", "input.cpp", "-c"]
 
-  let procDesc = proc testExecutable $ makeTestArgs "input.cpp" $ cmdLine cfg
+  let procDesc = proc testExecutable $ makeTestArgs tempFileName $ cmdLine cfg
       params   = procDesc { std_err = CreatePipe
                           , std_out = CreatePipe
                           }

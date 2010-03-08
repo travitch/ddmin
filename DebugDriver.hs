@@ -55,7 +55,8 @@ getCombinedOutput hOut hErr = do
 
   return combinedOut
 
-saveOutput fileContents = withFile "saved_failure.cpp" WriteMode $ flip hPutStr fileContents
+saveOutput destination fileContents =
+  withFile destination WriteMode $ flip hPutStr fileContents
 
 testFunc cfg lines = do
   let fileContents = concat lines
@@ -64,13 +65,12 @@ testFunc cfg lines = do
       (originalFilename, fileExt) = splitExtension $ input_file cfg
 
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
-      -- procDesc = proc "/u/t/r/travitch/private/research/sampler_cc_rose/bin/identity-unparser" ["-rose:unparse_includes", "input.cpp", "-c"]
 
   let procDesc = proc testExecutable $ makeTestArgs tempFileName $ cmdLine cfg
       params   = procDesc { std_err = CreatePipe
                           , std_out = CreatePipe
                           }
-  -- withFile "input.cpp" WriteMode $ flip hPutStr fileContents
+
   hPutStr tempHandle fileContents
   hClose tempHandle
   (_, Just hOut, Just hErr, p) <- createProcess params
@@ -87,7 +87,7 @@ testFunc cfg lines = do
   case exitCode of
     ExitSuccess -> putStrLn "ExitSuccess" >> return Pass
     ExitFailure c -> if combinedOutput =~ failureRegex
-                       then putStrLn "Fail" >> saveOutput fileContents >> return Fail
+                       then putStrLn "Fail" >> saveOutput ("saved-output." ++ fileExt) fileContents >> return Fail
                        else putStrLn "Unresolved" >> return Unresolved
 
 lineIsNotBlank "\n" = False

@@ -1,12 +1,17 @@
-Name:    ddmin
-Version: 0.1
-Description: A Haskell implementation of Zeller's ddmin algorithm for minimizing failing inputs
-License:     BSD3
-Author:      Tristan Ravitch
-Maintainer:  travitch@gmail.com
-Build-Type:  Simple
-Cabal-Version: >= 1.6
+name: ddmin
+version: 0.1
+description: A Haskell implementation of Zeller's ddmin algorithm for minimizing failing inputs
+license: BSD3
+author: Tristan Ravitch
+maintainer: travitch@cs.wisc.edu
+build-type: Simple
+cabal-version: >= 1.10
 
-Executable ddmin
-  Main-is: DebugDriver.hs
-  Build-Depends: cmdargs, regex-pcre-builtin, split, bytestring-trie, process, base > 4, filepath, haskell98, binary, bytestring-class, bytestring, mtl
+executable ddmin
+  default-language: Haskell2010
+  main-is: DebugDriver.hs
+  ghc-options: -Wall
+  build-depends: base > 4 && < 5, filepath, mtl > 2 && < 3,
+                 process, binary, cmdargs >= 0.7 && < 0.8, directory,
+                 bytestring, bytestring-class, bytestring-trie,
+                 regex-pcre-builtin, split

@@ -1,14 +1,13 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-import DeltaDebug
-import DeltaDebug.InputStrategies
-import Directory
--- import System.Console.CmdArgs
+import System.Directory
 import System.Console.CmdArgs.Explicit
 import System.Exit
 import System.FilePath
-import System.IO (hPutStr, hClose, hGetContents, withFile, openTempFile, hIsEOF, hGetLine, IOMode(..))
+import System.IO ( hPutStr, hClose, withFile, openTempFile, IOMode(..) )
 import System.Process
-import Text.Regex.PCRE hiding (empty)
+import Text.Regex.PCRE hiding ( empty )
+
+import DeltaDebug
+import DeltaDebug.InputStrategies
 
 addArg :: String -> Config -> Either String Config
 addArg s c = Right c { cmdLine = cmdLine c ++ [s] }
@@ -45,7 +44,7 @@ data Config = Config { searchCombined :: Maybe String
                      , inputFile      :: Maybe String
                      , savedOutput    :: Maybe String
                      , cmdLine        :: [String]
-                       } deriving (Show) -- , Data, Typeable)
+                       } deriving (Show)
 
 defaultConfig :: Config
 defaultConfig = Config { searchCombined = Nothing
@@ -56,14 +55,7 @@ defaultConfig = Config { searchCombined = Nothing
                        , cmdLine = []
                        }
 
--- config = Config { searchCombined = def &= help "Search the combined stdout and stderr for a regex" &= typ "REGEX" &= explicit &= name "search-combined"
---                 , searchError    = def &= help "Search stderr for a regex" &= typ "REGEX" &= explicit &= name "search-error"
---                 , searchOut      = def &= help "Search stdout for a regex" &= typ "REGEX" &= explicit &= name "search-out"
---                 , inputFile      = def &= help "The input file to be minimized" &= typFile &= explicit &= name "input-file"
---                 , savedOutput    = def &= help "Save the latest failing test to a file" &= typFile &= explicit &= name "saved-output"
---                 , cmdLine        = def &= args -- help "The command to run.  Use ? for the input file" &= explicit &= name "cmd"
---                 }
-
+getSearchRegex :: Config -> String
 getSearchRegex cfg =
   case (searchCombined cfg, searchError cfg, searchOut cfg) of
     (Just x, Nothing, Nothing) -> x
@@ -71,26 +63,31 @@ getSearchRegex cfg =
     (Nothing, Nothing, Just x) -> x
     _ -> error "Only specify one search target supported for now"
 
+getTestExecutable :: Config -> String
 getTestExecutable cfg =
   case cmdLine cfg of
-    exe : args -> exe
+    exe : _ -> exe
     _ -> error "No command line specified"
 
 -- Replace the ? argument with thisInput
-makeTestArgs thisInput (cmd:args) = map substituteTempFile args
+makeTestArgs :: String -> [String] -> [String]
+makeTestArgs thisInput (_:args) = map substituteTempFile args
     where
       substituteTempFile "?" = thisInput
       substituteTempFile x = x
 
+fileAsInputLines :: FilePath -> IO [String]
 fileAsInputLines filename = do
   s <- readFile filename
   return $ byLine s
 
+fileAsInputChars :: FilePath -> IO String
 fileAsInputChars = readFile
 
 -- If a destination was specified on the command line, save failing
 -- inputs.
-saveOutput Nothing fileContents = return ()
+saveOutput :: Maybe FilePath -> String -> IO ()
+saveOutput Nothing _ = return ()
 saveOutput (Just destination) fileContents =
   withFile destination WriteMode $ flip hPutStr fileContents
 
@@ -102,12 +99,13 @@ saveOutput (Just destination) fileContents =
 -- file is cleaned up when it is no longer needed (most of the time).
 -- To be truly correct I should use bracket.  The error output is
 -- displayed on stdout to demonstrate progress.
-testFunc cfg lines = do
-  let fileContents = concat lines
+testFunc :: Config -> [String] -> IO Outcome
+testFunc cfg ls = do
+  let fileContents = concat ls
       failureRegex = getSearchRegex cfg
       testExecutable = getTestExecutable cfg
       Just infile = inputFile cfg
-      (originalFilename, fileExt) = splitExtension infile
+      (_, fileExt) = splitExtension infile
 
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
   let expandedArgs = makeTestArgs tempFileName (cmdLine cfg)
@@ -123,19 +121,22 @@ testFunc cfg lines = do
 
   case exitCode of
     ExitSuccess -> putStrLn "ExitSuccess" >> return Pass
-    ExitFailure c -> if combinedOutput =~ failureRegex
+    ExitFailure _ -> if combinedOutput =~ failureRegex
                        then putStrLn "Fail" >> saveOutput (savedOutput cfg) fileContents >> return Fail
                        else putStrLn "Unresolved" >> return Unresolved
 
+lineIsNotBlank :: String -> Bool
 lineIsNotBlank "\n" = False
 lineIsNotBlank _ = True
 
+main :: IO ()
 main = do
-  -- cfg <- cmdArgs {-"A Haskell implementation of the ddmin algorithm"-} config
   cfg <- processArgs arguments
   case inputFile cfg of
     Nothing -> error "input-file is required"
     Just _ -> return ()
+
+  putStrLn $ show (cmdLine cfg)
 
   let Just infile = inputFile cfg
 

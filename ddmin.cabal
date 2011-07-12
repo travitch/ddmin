@@ -2,9 +2,12 @@ name: ddmin
 version: 0.1
 description: A Haskell implementation of Zeller's ddmin algorithm for minimizing failing inputs
 license: BSD3
+license-file: LICENSE
 author: Tristan Ravitch
 maintainer: travitch@cs.wisc.edu
 build-type: Simple
+stability: experimental
+category: Debug
 cabal-version: >= 1.10
 
 executable ddmin

@@ -1,4 +1,4 @@
-module DeltaDebug (
+module Debug.DeltaDebug (
   -- * Types
   Outcome(..),
   -- * Interface

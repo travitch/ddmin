@@ -1,4 +1,4 @@
-module DeltaDebug.InputStrategies ( byLine
+module Debug.DeltaDebug.InputStrategies ( byLine
                                     --, byCToken
                                   -- , byWord
                                   , byChar

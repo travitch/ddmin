@@ -1,32 +1,49 @@
-module DeltaDebug ( ddmin
-                  , Outcome(..)
-                  ) where
+module DeltaDebug (
+  -- * Types
+  Outcome(..),
+  -- * Interface
+  ddmin
+  ) where
 
 import Control.Monad.State
-import qualified Data.ByteString.Lazy as BS
 import Data.Bits
-import Data.List.Split (chunk)
+import Data.List.Split ( chunk )
 import Data.Trie as T
 import Data.BitVector
-import Data.Word
 
--- import Debug.Trace
--- debug = flip trace
-
-data Outcome = Fail | Pass | Unresolved
+-- | Representation of the outcomes of the test function when applied
+-- to generated reduced test cases.
+data Outcome = Fail
+               -- ^ The test failed in the expected way
+             | Pass
+               -- ^ The test succeeded
+             | Unresolved
+               -- ^ The test provided no information
              deriving (Eq,Show)
 
+
+type DeltaState a = StateT (Trie Outcome, [a]) IO
+
+extractIndexedData :: [(a, b)] -> [b]
 extractIndexedData = map snd
+
+extractIndices :: [(a, b)] -> [a]
 extractIndices = map fst
+
+indexedToVector :: [(Int, a)] -> Int -> BitVector
 indexedToVector idat len = makeBitVector len True (extractIndices idat)
 
-makeTestVectors input vecLen nGroups = (map maskFunc bitVectors, map maskFunc complements)
-  where chunks = chunk nGroups (extractIndices input)
-        bitVectors = map (makeBitVector vecLen True) chunks
-        complements = map complement bitVectors
-        maskFunc = (activeBitMask .&.)
-        activeBitMask = indexedToVector input vecLen
+makeTestVectors :: [(Int, b)] -> Int -> Int -> ([BitVector], [BitVector])
+makeTestVectors input vecLen nGroups =
+  (map maskFunc bitVectors, map maskFunc complements)
+  where
+    chunks = chunk nGroups (extractIndices input)
+    bitVectors = map (makeBitVector vecLen True) chunks
+    complements = map complement bitVectors
+    maskFunc = (activeBitMask .&.)
+    activeBitMask = indexedToVector input vecLen
 
+updateCache :: BitVector -> [a] -> Outcome -> DeltaState a ()
 updateCache testSet indexedList result = do
   (cache, smallestInputSoFar) <- get
   let bytestring = toByteString testSet
@@ -35,63 +52,66 @@ updateCache testSet indexedList result = do
     Fail | length indexedList < length smallestInputSoFar -> put (updatedCache, indexedList)
     _ -> put (updatedCache, smallestInputSoFar)
 
-wasTested :: BitVector -> StateT (Trie Outcome, [a]) IO (Maybe Outcome)
+wasTested :: BitVector -> DeltaState a (Maybe Outcome)
 wasTested testSet = do
   let bytestring = toByteString testSet
-  (cache, si) <- get
+  (cache, _) <- get
   return $ T.lookup bytestring cache
 
 -- | Given an input sequence and a function that can test sub-sequences
 -- | for failures, return the minimal failing input as per Zeller 02
 ddmin :: Show a => [a] -> ([a] -> IO Outcome) -> IO [a]
 ddmin input testFunc = evalStateT (ddmin' initialIndexedInput 2) (T.empty, input)
-  where inputLen = length input
-        initialIndexedInput = zip [0..] input
+  where
+    inputLen = length input
+    initialIndexedInput = zip [0..] input
 
-        testSetToIndexed ts = filter (bitForIndexIsSet ts) initialIndexedInput
-        bitForIndexIsSet ts (idx, val) = testBit ts idx
+    testSetToIndexed ts = filter (bitForIndexIsSet ts) initialIndexedInput
 
-        -- | Recursively decompose the input sequence as per the ddmin
-        -- algorithm described in Zeller 02.
-        ddmin' currentInput nGroups = do
-          let (divs, complements) = makeTestVectors currentInput inputLen nGroups
-          divRes <- internalTest testFunc initialIndexedInput divs
-          complRes <- internalTest testFunc initialIndexedInput complements
+    -- | Recursively decompose the input sequence as per the ddmin
+    -- algorithm described in Zeller 02.
+    ddmin' currentInput nGroups = do
+      let (divs, complements) = makeTestVectors currentInput inputLen nGroups
+      divRes <- internalTest testFunc initialIndexedInput divs
+      complRes <- internalTest testFunc initialIndexedInput complements
 
-          (cache, smallestInput) <- get
+      (_, smallestInput) <- get
 
-          if length currentInput == nGroups
-             then return smallestInput -- Done
-             else case divRes of
-                   Nothing -> case complRes of
-                                -- Increase granularity
-                                Nothing -> ddmin' currentInput (min (nGroups * 2) (length currentInput))
-                                -- Reduce to complement
-                                Just failingInput -> ddmin' (testSetToIndexed failingInput) (max (nGroups - 1) 2)
-                   -- Reset granularity
-                   Just failingInput -> ddmin' (testSetToIndexed failingInput) 2
+      case length currentInput == nGroups of
+        True -> return smallestInput -- Done
+        False -> case divRes of
+          Nothing -> case complRes of
+            -- Increase granularity
+            Nothing -> ddmin' currentInput (min (nGroups * 2) (length currentInput))
+            -- Reduce to complement
+            Just failingInput -> ddmin' (testSetToIndexed failingInput) (max (nGroups - 1) 2)
+          -- Reset granularity
+          Just failingInput -> ddmin' (testSetToIndexed failingInput) 2
 
 -- | Run the actual test on the first bitvector it is given.  Returns
 -- Just the first failing test OR Nothing if all tests are unresolved
-internalTest testFunc initialIndexedInput [] = return Nothing
+internalTest :: ([a] -> IO Outcome) -> [(Int, a)] -> [BitVector] -> DeltaState a (Maybe BitVector)
+internalTest _ _ [] = return Nothing
 internalTest testFunc initialIndexedInput (testSet:rest) = do
   previousResult <- wasTested testSet
-  testIfNecessary previousResult testSet rest
+  case previousResult of
+    Nothing -> do
+      let indexedList = testSetToList testSet initialIndexedInput
+      result <- liftIO $ testFunc indexedList
+      updateCache testSet indexedList result
+      dispatchResult result
+    Just result -> dispatchResult result
+  where
+    dispatchResult result =
+      case result of
+        Pass -> internalTest testFunc initialIndexedInput rest
+        Unresolved -> internalTest testFunc initialIndexedInput rest
+        Fail -> return $ Just testSet
 
-  where testIfNecessary Nothing testSet rest = do
-          result <- liftIO $ testFunc indexedList
-          updateCache testSet indexedList result
-          dispatchResult result testSet rest
-          where
-            indexedList = testSetToList testSet initialIndexedInput
-        testIfNecessary (Just result) testSet rest = dispatchResult result testSet rest
-        dispatchResult result testSet rest =
-          case result of
-            Pass -> internalTest testFunc initialIndexedInput rest
-            Unresolved -> internalTest testFunc initialIndexedInput rest
-            Fail -> return $ Just testSet
+bitForIndexIsSet :: Bits a => a -> (Int, b) -> Bool
+bitForIndexIsSet ts (idx, _) = testBit ts idx
 
-bitForIndexIsSet ts (idx, val) = testBit ts idx
+testSetToList :: Bits a => a -> [(Int, b)] -> [b]
 testSetToList ts initialIndexedInput = extractIndexedData chosenTuples
   where
     chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput

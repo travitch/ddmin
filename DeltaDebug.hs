@@ -82,7 +82,8 @@ internalTest testFunc initialIndexedInput (testSet:rest) = do
           result <- liftIO $ testFunc indexedList
           updateCache testSet indexedList result
           dispatchResult result testSet rest
-          where indexedList = testSetToList testSet
+          where
+            indexedList = testSetToList testSet initialIndexedInput
         testIfNecessary (Just result) testSet rest = dispatchResult result testSet rest
         dispatchResult result testSet rest =
           case result of
@@ -90,8 +91,9 @@ internalTest testFunc initialIndexedInput (testSet:rest) = do
             Unresolved -> internalTest testFunc initialIndexedInput rest
             Fail -> return $ Just testSet
 
-        bitForIndexIsSet ts (idx, val) = testBit ts idx
-        testSetToList ts = extractIndexedData chosenTuples
-          where chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput
+bitForIndexIsSet ts (idx, val) = testBit ts idx
+testSetToList ts initialIndexedInput = extractIndexedData chosenTuples
+  where
+    chosenTuples = filter (bitForIndexIsSet ts) initialIndexedInput
 
 

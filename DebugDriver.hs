@@ -1,8 +1,11 @@
+{-# LANGUAGE OverloadedStrings #-}
+import Data.ByteString.Lazy.Char8 ( ByteString )
+import qualified Data.ByteString.Lazy.Char8 as BS
 import System.Directory
 import System.Console.CmdArgs.Explicit
 import System.Exit
 import System.FilePath
-import System.IO ( hPutStr, hClose, withFile, openTempFile, IOMode(..) )
+import System.IO ( hClose, withFile, openTempFile, IOMode(..) )
 import System.Process
 import Text.Regex.PCRE hiding ( empty )
 
@@ -76,20 +79,20 @@ makeTestArgs thisInput (_:args) = map substituteTempFile args
       substituteTempFile "?" = thisInput
       substituteTempFile x = x
 
-fileAsInputLines :: FilePath -> IO [String]
+fileAsInputLines :: FilePath -> IO [ByteString]
 fileAsInputLines filename = do
-  s <- readFile filename
-  return $ byLine s
+  s <- BS.readFile filename
+  return $ map (flip BS.append "\n") (BS.lines s)
 
 fileAsInputChars :: FilePath -> IO String
 fileAsInputChars = readFile
 
 -- If a destination was specified on the command line, save failing
 -- inputs.
-saveOutput :: Maybe FilePath -> String -> IO ()
+saveOutput :: Maybe FilePath -> ByteString -> IO ()
 saveOutput Nothing _ = return ()
 saveOutput (Just destination) fileContents =
-  withFile destination WriteMode $ flip hPutStr fileContents
+  withFile destination WriteMode $ flip BS.hPut fileContents
 
 -- | Dumps the current state to a temporary file.  This temporary file
 -- is substituted for the ? argument provided in the skeleton command
@@ -99,9 +102,9 @@ saveOutput (Just destination) fileContents =
 -- file is cleaned up when it is no longer needed (most of the time).
 -- To be truly correct I should use bracket.  The error output is
 -- displayed on stdout to demonstrate progress.
-testFunc :: Config -> [String] -> IO Outcome
+testFunc :: Config -> [ByteString] -> IO Outcome
 testFunc cfg ls = do
-  let fileContents = concat ls
+  let fileContents = BS.concat ls
       failureRegex = getSearchRegex cfg
       testExecutable = getTestExecutable cfg
       Just infile = inputFile cfg
@@ -110,7 +113,7 @@ testFunc cfg ls = do
   (tempFileName, tempHandle) <- openTempFile "/tmp" ("ddmin." ++ fileExt)
   let expandedArgs = makeTestArgs tempFileName (cmdLine cfg)
 
-  hPutStr tempHandle fileContents
+  BS.hPut tempHandle fileContents
   hClose tempHandle
 
   (exitCode, outStr, errStr) <- readProcessWithExitCode testExecutable expandedArgs ""
@@ -125,7 +128,7 @@ testFunc cfg ls = do
                        then putStrLn "Fail" >> saveOutput (savedOutput cfg) fileContents >> return Fail
                        else putStrLn "Unresolved" >> return Unresolved
 
-lineIsNotBlank :: String -> Bool
+lineIsNotBlank :: ByteString -> Bool
 lineIsNotBlank "\n" = False
 lineIsNotBlank _ = True
 
@@ -144,4 +147,4 @@ main = do
 
   let inputWithoutBlanks = filter lineIsNotBlank input
   minInput <- ddmin inputWithoutBlanks (testFunc cfg)
-  putStrLn $ "Smallest input: \n" ++ concat minInput
+  putStrLn $ "Smallest input: \n" ++ (show (BS.concat minInput))

@@ -141,9 +141,11 @@ instance Bits L.ByteString where
     complementBit a i = asInteger (`complementBit` i) a
     testBit a i =
         let (d, m) = i `quotRem` 8
-        in case L.unpack (L.drop (fromIntegral d) a) of
+        in testBit (L.index a d) m
+{-case L.unpack (L.drop (fromIntegral d) a) of
              []    -> False
              (w:_) -> testBit w m
+-}
     bitSize a = 8 * fromIntegral (L.length a)
     isSigned _ = False
     shiftL = shift

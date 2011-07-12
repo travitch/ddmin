@@ -1,7 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module Data.ByteString.Num
-    (numCompare
-    ) where
+module Data.ByteString.Num ( numCompare ) where
 
 import qualified Data.ByteString as L
 import Data.ByteString.Class
@@ -85,7 +83,7 @@ isMaxBound = L.all (== 0xFF)
 isMinBound :: L.ByteString -> Bool
 isMinBound = L.all (== 0x0)
 
--- instance Ord L.ByteString where
+numCompare :: L.ByteString -> L.ByteString -> Ordering
 numCompare a b =
       let byteCmp = normalized (\x y -> reverse (L.zipWith compare x y)) a b
       in case dropWhile (== EQ) byteCmp of

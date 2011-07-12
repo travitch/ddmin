@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-import Data.ByteString.Lazy.Char8 ( ByteString )
-import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.ByteString.Char8 ( ByteString )
+import qualified Data.ByteString.Char8 as BS
 import System.Directory
 import System.Console.CmdArgs.Explicit
 import System.Exit

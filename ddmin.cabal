@@ -18,5 +18,5 @@ executable ddmin
   ghc-prof-options: -auto-all
   build-depends: base > 4 && < 5, filepath, mtl > 2 && < 3,
                  process, binary, cmdargs >= 0.7 && < 0.8, directory,
-                 bytestring, bytestring-class, bytestring-trie,
+                 bytestring, bytestring-trie,
                  regex-pcre-builtin, split

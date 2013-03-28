@@ -75,7 +75,10 @@ ddmin input testFunc = evalStateT (ddmin' initialIndexedInput 2) (T.empty, input
       divRes <- internalTest testFunc initialIndexedInput divs
       complRes <- internalTest testFunc initialIndexedInput complements
 
+      -- Reset the cache since nothing we saved at this point will
+      -- help us.
       (_, smallestInput) <- get
+      put (T.empty, smallestInput)
 
       case length currentInput == nGroups of
         True -> return smallestInput -- Done

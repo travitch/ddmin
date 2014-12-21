@@ -2,7 +2,7 @@
 module Data.ByteString.Num ( numCompare ) where
 
 import qualified Data.ByteString as BS
-import Data.ByteString.Class
+import qualified Data.ByteString.Lazy as LBS
 import Data.Bits
 import Data.Binary ( encode )
 import Data.List ( foldl', mapAccumL )
@@ -61,7 +61,7 @@ instance Real BS.ByteString where
 instance Enum BS.ByteString where
     succ a = if isMaxBound a then error "succ maxBound" else a + 1
     pred a = if isMinBound a then error "pred minBound" else a - 1
-    toEnum i = toStrictByteString $ encode i
+    toEnum i = BS.concat $ LBS.toChunks $ encode i
     fromEnum = fromIntegral
     enumFrom a = if isMaxBound a then [a] else a : (enumFrom (succ a))
     enumFromThen start cnt = normalized go start cnt
@@ -140,10 +140,6 @@ instance Bits BS.ByteString where
     testBit a i =
         let (d, m) = i `quotRem` 8
         in testBit (BS.index a d) m
-{-case BS.unpack (BS.drop (fromIntegral d) a) of
-             []    -> False
-             (w:_) -> testBit w m
--}
     bitSize a = 8 * fromIntegral (BS.length a)
     isSigned _ = False
     shiftL = shift

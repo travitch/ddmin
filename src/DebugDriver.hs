@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE  OverloadedStrings #-}
 import Control.Exception ( bracket )
 import Data.ByteString.Char8 ( ByteString )
 import qualified Data.ByteString.Char8 as BS
@@ -83,10 +83,14 @@ makeTestArgs thisInput (_:args) = map substituteTempFile args
 fileAsInputLines :: FilePath -> IO [ByteString]
 fileAsInputLines filename = do
   s <- BS.readFile filename
-  return $ map (flip BS.append "\n") (BS.lines s)
+  return $ map (`BS.append` "\n") (BS.lines s)
 
 fileAsInputChars :: FilePath -> IO String
 fileAsInputChars = readFile
+
+-- Add an input method for c-like languages.  Match top-level curly
+-- braces and treat the braced unit (and the preceeding line) as a
+-- unit.
 
 -- If a destination was specified on the command line, save failing
 -- inputs.
@@ -146,9 +150,9 @@ main = do
   case isHelp cfg of
     True -> putStrLn $ showText (Wrap 80) $ helpText HelpFormatOne arguments
     False -> do
-      putStrLn $ show (cmdLine cfg)
+      print (cmdLine cfg)
       input <- fileAsInputLines (inputFile cfg)
 
-      let inputWithoutBlanks = filter lineIsNotBlank input
-      minInput <- ddmin inputWithoutBlanks (testFunc cfg)
-      putStrLn $ "Smallest input: \n" ++ (show (BS.concat minInput))
+--      let inputWithoutBlanks = filter lineIsNotBlank input
+      minInput <- ddmin input{-WithoutBlanks-} (testFunc cfg)
+      putStrLn $ "Smallest input: \n" ++ show (BS.concat minInput)
